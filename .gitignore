@@ -17,3 +17,7 @@ hardware/*
 # Software
 software/*
 !software/.gitkeep
+
+# Trash or system recovery files
+lost+found/
+.Trash-*/
