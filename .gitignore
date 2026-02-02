@@ -1,0 +1,19 @@
+# Drive-specific documentation
+_README.md
+
+# Project repositories
+projects/*
+!projects/README.md
+
+# Datafiles
+datasets/**/*
+# Note: Globstar is for any lower-level files.
+!datasets/.gitkeep
+
+# Firmware
+hardware/*
+!hardware/.gitkeep
+
+# Software
+software/*
+!software/.gitkeep
