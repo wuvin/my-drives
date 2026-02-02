@@ -16,9 +16,11 @@ General info for various storage devices and their directory structures.
 
 | ID | TYPE | DESC |
 | :- | :--: | :--- |
-| H-1TB-KWU1 | HDD | External HDD |
-| H-300GB-WUKEVI2 | HDD | HDD enclosure drive |
-| S-1TB-KJW3 | SSD | |
+| H-1TB-KWU1 | HDD NTFS | Personal files |
+| H-300GB-WUKEVI2 | HDD NTFS | Personal backups |
+| S-1TB-KJW3 | SSD EXT4 | Drive for code development |
+| S-1TB-KJW3-EXC | SSD NTFS | Second partition on same drive |
+| H-1TB-KWU4 | HDD NTFS | Spare |
 | kjw@HOME-UB22 | USR | Home desktop computer |
 | jungle@puget-267523-02 | USR | Account on remote NAIL machine |
 | kwu@siliconsynapse | USR | Account on high bay tower |
