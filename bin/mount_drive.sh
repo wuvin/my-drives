@@ -13,9 +13,10 @@
 #       Bind mounts /media/$USER/$DRIVE_NAME/projects/project to /mnt/project
 #
 # Contact:      wu.kevi@northeastern.edu
-# Last Updated: November 26, 2025
+# Last Updated: March 13, 2025
 
 _mount_point() {
+    # Define helpful functions
     _diag_mount_point() {
         [[ "${DIAG,,}" =~ ^(true|1|yes)$ ]] || return # use if DIAG=true
         echo "[DIAG] (mount_point.sh) $*"
@@ -26,51 +27,46 @@ _mount_point() {
             _diag_mount_point "$1 is set to ${!1}"
         fi
     }
-   
-    # Display environment variables being used
-    _display_vars DRIVE_NAME
-    _display_vars DRIVE_PATH
-    _display_vars MOUNT_POINT
     
-    # Locate shared drive
-    local DRIVE_NAME="${DRIVE_NAME:-S-1TB-KJW3}"
+    # Extract default drive name from absolute path of this script
+    local SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+    local DEFAULT_DRIVE=$(echo "$SCRIPT_PATH" | cut -d'/' -f4)
+
+    # Set variables to environment or to default
+    local DRIVE_NAME="${DRIVE_NAME:-$DEFAULT_DRIVE}"
+    DRIVE_NAME="${DRIVE_NAME:-S-1TB-KJW3}" # fallback
     local DRIVE_PATH="${DRIVE_PATH:-/media/$USER/$DRIVE_NAME}"
     local MOUNT_POINT="${MOUNT_POINT:-/mnt/$DRIVE_NAME}"
-    _diag_mount_point "DRIVE_NAME=$DRIVE_NAME"
-
-    # Parse argin(1) into DRIVE_PATH
+    local DIAG="${DIAG:-true}"
+    
+    # Parse arguments
     if [ -z "$1" ]; then
         _diag_mount_point "Empty argin(1)"
     elif [ "$1" == "kwu" ]; then
         MOUNT_POINT="/mnt/kwu"
+    elif [ "$1" == "exc"  ]; then
+        DRIVE_NAME="${DRIVE_NAME}-EXC"
+        DRIVE_PATH="/media/$USER/$DRIVE_NAME"
+        MOUNT_POINT="/mnt/exc/"
     elif [ -d "/media/$USER/$1" ]; then
         DRIVE_PATH="/media/$USER/$1"
     elif [ -d "$PWD/$1" ]; then
         DRIVE_PATH="$PWD/$1"
-    elif [ -d "/media/$USER/$DRIVE_NAME/projects/$1" ]; then
-        DRIVE_PATH="/media/$USER/$DRIVE_NAME/projects/$1"
+    elif [ -d "$DRIVE_PATH/projects/$1" ]; then
+        DRIVE_PATH="$DRIVE_PATH/projects/$1"
         MOUNT_POINT="/mnt/$1"
-    elif [ -d "/media/$USER/$DRIVE_NAME/dev/projects/$1" ]; then
-        DRIVE_PATH="/media/$USER/$DRIVE_NAME/dev/projects/$1"
+    elif [ -d "$DRIVE_PATH/dev/projects/$1" ]; then
+        DRIVE_PATH="$DRIVE_PATH/dev/projects/$1"
         MOUNT_POINT="/mnt/$1"
     elif [ ! -z "$1" ]; then
         echo "ERROR: Unknown input argument at position 1 ($1)"
         return 1
     fi
-    _diag_mount_point "DRIVE_PATH=$DRIVE_PATH"
-    _diag_mount_point "MOUNT_POINT=$MOUNT_POINT"
     
-    # Parse argin(2) into mnt_folder toggle
-#     if [[ "$(basename $(dirname $DRIVE_PATH))" == "projects" ]]; then
-#         local mnt_foldername="${2:-true}" # default true if inside 'projects'
-#     else
-#         local mnt_foldername="${2:-false}" # default false else
-#     fi
-#     _diag_mount_point "mnt_foldername=$mnt_foldername"
-#     if [[ "$mnt_foldername" != "true" && "$mnt_foldername" != "false" ]]; then
-#         echo "ERROR: Unknown input argument at position 2 ($2)"
-#         return 1
-#     fi
+    # Display variable values
+    _display_vars DRIVE_NAME
+    _display_vars DRIVE_PATH
+    _display_vars MOUNT_POINT
 
     # Check if drive exists
     if [ ! -d "$DRIVE_PATH" ]; then
@@ -107,4 +103,4 @@ _mount_point() {
     return 0
 }
 
-_mount_point "$1"
+_mount_point "$@"
