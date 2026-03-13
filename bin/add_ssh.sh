@@ -5,14 +5,10 @@
 #   Initializes SSH agent and add key.
 #
 # Contact:      wu.kevi@northeastern.edu
-# Last Updated: July 18, 2025
+# Last Updated: March 13, 2026
 
 # Check SSH_AUTH_SOCK
-if { [ ! -z "$SSH_AUTH_SOCK" ] && [ -z "$SSH_AGENT_PID" ]; }; then
-	echo "ERROR: Variable SSH_AUTH_SOCK is already set: $SSH_AUTH_SOCK"
-	echo "Clear before attempting to run ssh-agent"
-	return
-elif [ ! -z "$SSH_AUTH_SOCK" ]; then
+if { [ ! -z "$SSH_AUTH_SOCK" ] && [ ! -z "$SSH_AGENT_PID" ]; }; then
 	echo "ERROR: Existing agent (SOCK=$SSH_AUTH_SOCK, PID=$SSH_AGENT_PID)"
 	echo 'Use `eval "$(ssh-agent -k)"` to kill before adding another key'
 	echo 'Check existing keys with `ssh-add -L`'
@@ -108,28 +104,10 @@ unset -f load_ntfs_ssh_key
 
 # Set relative to DEV_PATH if needed
 if [[ ! -f "${SSH_KEY}" ]]; then
-	echo WHAT
-	echo "Could not find ${SSH_KEY}"
-	TEMP=$SSH_KEY
-	unset SSH_KEY
-	return
-	BIN_DIR="$(dirname "${BASH_SOURCE[0]}")" # relative
-	BIN_DIR="$(cd $BIN_DIR && pwd)" # absolute
-	_diag_add_ssh "BIN_DIR set to: $BIN_DIR"
-	
-	if [[ -f "${BIN_DIR}/get_dev_path.sh" ]]; then
-		source "${BIN_DIR}/get_dev_path.sh" # sets DEV_PATH
-	else
-		echo "$BIN_DIR/get_dev_path.sh: No such file or directory"
-	fi
-	
-	SSH_KEY="$DEV_PATH/config/.ssh/$SSH_KEY"
-	_diag_add_ssh "Reset SSH_KEY to: $SSH_KEY"
-fi
-if [[ ! -f "${SSH_KEY}" ]]; then
 	unset -f _diag_add_ssh
 	unset BIN_DIR
 	echo "$SSH_KEY: No such file or directory"
+	unset SSH_KEY
 	return
 fi
 
