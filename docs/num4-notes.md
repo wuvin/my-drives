@@ -95,3 +95,41 @@ ros2 bag record -s mcap -o run20250829_rgb /camera/camera/color/image_raw /camer
 
 (terminal 4)
 ros2 bag record -s mcap -o run20250829_lid /livox/lidar
+
+-----
+
+### ROS 1 Noetic Controls
+
+MAVROS
+- source m4_ws/devel/setup.bash
+- roslaunch m4_base interfaces.launch
+
+Controls (RC)
+- source m4_ws/devel/setup.bash
+- roslaunch m4_base m4_control.launch
+
+Controls (Profile)
+- source m4_ws/devel/setup.bash
+- roslaunch m4_base profile.launch profile:=circle xvel:=0.6 yvel:=0.2 duration:=14 count:=10
+
+-----
+
+### Kamalnath ROS 2 Sensors (`new_docker_test`)
+
+RealSense
+- source m4_ws/src/m4-sensors/install/setup.bash
+- ros2 launch realsense2_bringup d435i_with_madgwick.launch.py
+
+Livox
+- source m4_ws/src/ws_livox/install/setup.bash
+- ros2 launch livox_ros_driver2 msg_MID360_launch.py
+
+FAST-LIVO2
+- source m4_ws/src/fs_livo2_ws/install/setup.bash
+- ros2 launch fast_livo mapping_mid360.launch.py config_file:=mid360.yaml
+
+Recordings
+- ros2 bag record -s sqlite3 -o run20260312_hb_mix_out /aft_mapped_to_init /cloud_registered /mavros/vision_pose/pose /rs_imu/data
+- ros2 bag record -s sqlite3 -o run20260312_hb_mix_cam /camera/camera/color/camera_info /camera/camera/color/image_raw /camera/camera/color/metadata /camera/camera/aligned_depth_to_color/camera_info /camera/camera/aligned_depth_to_color/image_raw
+
+---
