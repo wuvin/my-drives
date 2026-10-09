@@ -1,6 +1,9 @@
 # Drive-specific documentation
 _README.md
 
+# Keys
+.ssh/*
+
 # Project repositories
 projects/*
 !projects/README.md
