@@ -7,6 +7,13 @@
 # Contact:      wu.kevi@northeastern.edu
 # Last Updated: November 09, 2026
 
+# Check if sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+	echo "ERROR: Script must be sourced." >&2
+	echo "Usage: source ${0} <PATH>" >&2
+	exit 1
+fi
+
 # Set local functions
 _diag_sshkey() {  # diagnostic display
     [[ "${DIAG,,}" =~ ^(true|1|yes)$ ]] || return # check DIAG=true
