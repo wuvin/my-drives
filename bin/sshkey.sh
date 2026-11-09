@@ -9,9 +9,9 @@
 
 # Check if sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-	echo "ERROR: Script must be sourced" >&2
+	echo "ERROR: Script must be sourced to run in current terminal" >&2
 	echo "Usage: source ${0} <PATH>" >&2
-	exit 1
+	exit 1  # terminates script when (mistakenly) run directly
 fi
 
 # Set local functions
