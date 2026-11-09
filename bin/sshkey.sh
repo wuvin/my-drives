@@ -9,7 +9,7 @@
 
 # Check if sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-	echo "ERROR: Script must be sourced." >&2
+	echo "ERROR: Script must be sourced" >&2
 	echo "Usage: source ${0} <PATH>" >&2
 	exit 1
 fi
@@ -65,6 +65,35 @@ _resolve_ssh_path() (  # run in subshell so shopt changes not in shell
 	[[ "$current" == ./* ]] && current="${current#./}"
 	printf '%s\n' "$current"
 )
+
+_load_ntfs_ssh_key() {  # special case of key from NTFS partition
+	local original_key="$1"
+	local temp_key is_key_loaded
+
+	# Use mktemp to create as 600 permission (NTFS cannot set to 600)
+	temp_key="$(mktemp)" || { 
+		echo "ERROR: Could not create temp file";
+		return 1;
+	}
+	cat -- "$original_key" > "$temp_key"
+	
+	# Load into ssh-agent
+	eval "$(ssh-agent -s)"
+	ssh-add "$temp_key"
+	is_key_loaded=$?
+	
+	# Securely delete temp key
+	shred -u "$temp_key" 2>/dev/null || rm -f "$temp_key"
+	
+	# Return result
+	if [ $is_key_loaded -eq 0 ]; then
+		_diag_sshkey "Key from NTFS partition loaded into agent"
+	else
+		_diag_sshkey "Failed to load key from NTFS partition into agent"
+	fi
+	
+	return $is_key_loaded
+}
 
 # Check SSH_AUTH_SOCK
 if { [ ! -z "$SSH_AUTH_SOCK" ] && [ ! -z "$SSH_AGENT_PID" ]; }; then
@@ -124,61 +153,14 @@ if [[ ! -f "$SSH_KEY" ]]; then
 	_diag_sshkey "Resolved to: $SSH_KEY"
 fi
 
-# Define different function for NTFS partition
-load_ntfs_ssh_key() {
-	local original_key="$1"
-	local temp_key="/tmp/${original_key##*/}"
-	
-	if [ ! -f "$original_key" ]; then
-		echo "ERROR: Key file not found ($original_key)"
-		return
-	fi
-	
-	# Copy key to temp location
-	cp "$original_key" "$temp_key"
-	
-	# Set secure permissions
-	chmod 600 "$temp_key"
-	
-	# Load into ssh-agent
-	eval "$(ssh-agent -s)"
-	ssh-add "$temp_key"
-	local result=$?
-	
-	# Securely delete temp key
-	shred -u "$temp_key" 2>/dev/null || rm -f "$temp_key"
-	
-	if [ $result -eq 0 ]; then
-		echo "Key from NTFS partition loaded successfully into ssh-agent"
-	else
-		echo "Failed to load key from NTFS partition into ssh-agent"
-	fi
-	
-	return $result
-}
-
-# Use different function if SSH_KEY is on an NTFS partition
-KEY_FSTYPE="$(findmnt -n -o FSTYPE --target "$SSH_KEY")"
+# Use workaround if SSH_KEY is on an NTFS partition
+KEY_FSTYPE="$(findmnt -n -o FSTYPE --target "$SSH_KEY" 2>/dev/null)"
 if { [ "$KEY_FSTYPE" == "ntfs" ] || [ "$KEY_FSTYPE" == "ntfs3" ] || \
      [ "$KEY_FSTYPE" == "fuseblk" ]; }; then
 	_diag_sshkey "Triggered NTFS check: $KEY_FSTYPE"
-	load_ntfs_ssh_key "$SSH_KEY"
-	unset -f _diag_sshkey
-	unset SSH_KEY
-	unset KEY_FSTYPE
-	return
+	_load_ntfs_ssh_key "$SSH_KEY"
 fi
 unset KEY_FSTYPE
-unset -f load_ntfs_ssh_key
-
-# Set relative to DEV_PATH if needed
-if [[ ! -f "${SSH_KEY}" ]]; then
-	unset -f _diag_sshkey
-	unset BIN_DIR
-	echo "$SSH_KEY: No such file or directory"
-	unset SSH_KEY
-	return
-fi
 
 # >>> ssh >>>
 eval "$(ssh-agent -s)"
@@ -186,6 +168,5 @@ ssh-add "$SSH_KEY"
 # <<< ssh <<<
 
 # Clear temporary variables
-unset -f _diag_sshkey _resolve_ssh_path
-unset SSH_KEY
-unset BIN_DIR
+unset -f _diag_sshkey _resolve_ssh_path _load_ntfs_ssh_key
+unset SSH_KEY KEY_FSTYPE
