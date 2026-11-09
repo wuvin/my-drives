@@ -95,31 +95,95 @@ _load_ntfs_ssh_key() {  # special case of key from NTFS partition
 	return $is_key_loaded
 }
 
-# Check SSH_AUTH_SOCK
-if { [ ! -z "$SSH_AUTH_SOCK" ] && [ ! -z "$SSH_AGENT_PID" ]; }; then
-	echo "ERROR: Existing agent (SOCK=$SSH_AUTH_SOCK, PID=$SSH_AGENT_PID)"
-	echo 'Use `eval "$(ssh-agent -k)"` to kill before adding another key'
-	echo 'Check existing keys with `ssh-add -L`'
-	return
+_scan_for_authsock_listener() {  # used to avoid flagging forwarded case
+	local stale_dirs alive_dirs agent_pids skip
+	local found_alive=false  # ssh-add -l exits 0 if connects & has keys
+                             #              ... 1 if connects & no keys
+                             #              ... 2 if cannot connect
+	local throw_err=false
+
+	[[ "$SSH_AUTH_SOCK" == /tmp/ssh-*/* ]] && skip="${SSH_AUTH_SOCK%/*}"
+
+    # Check agents
+	while IFS= read -r -d '' dir; do
+		# Ignore forwarded sessions (by skipping dir of SSH_AUTH_SOCK)
+		if [[ "$dir" == "$skip" ]]; then
+			_diag_sshkey "Skipping $dir (holds current SSH_AUTH_SOCK)"
+			continue
+		fi
+
+		# Check if agent is listening
+		#	Note: desktop agents (e.g., GNOME keyring runs `ssh-agent -D
+		#		  -a ...`) do not match
+		for sock in "$dir"/agent.*; do
+            if [[ ! -S "$sock" ]]; then
+                continue
+            fi
+
+			SSH_AUTH_SOCK="$sock" timeout 3 ssh-add -l >/dev/null 2>&1
+            found_alive=$([[ $? -eq 0 || $? -eq 1 ]] && echo true)
+            if $found_alive; then
+                break
+            fi
+		done
+
+        # Note active listeners
+        [[ $found_alive ]] && alive_dirs+=("$dir")
+        [[ ! $found_alive ]] && stale_dirs+=("$dir")
+        _diag_sshkey "Found $dir (is_alive=$found_alive)"
+	done < <(
+		find /tmp \
+			-maxdepth 1	\
+			-type d \
+			-name 'ssh-*' \
+			-user "$(id -u)" \
+			-print0 2>/dev/null
+	)
+
+    # Check PIDs
+    while read -r pid; do
+        [[ -n "$pid" ]] && agent_pids+=("$pid")
+    done < <(
+        pgrep \
+            -u "$(id -u)" \
+            -f '^ssh-agent( -[sc])?$'
+    )
+
+	# Throw
+	(( ${#alive_dirs[@]} )) && throw_err=true && (
+		printf "Found active agent sockets in /tmp:"
+		printf " %s" ${alive_dirs[*]}
+		printf "\n"
+	)
+	(( ${#stale_dirs[@]} )) && throw_err=true && (
+		printf "Found stale agent directories in /tmp"
+		printf " (no agent listening):"
+		printf " %s" ${stale_dirs[*]}
+		printf "\n"
+	)
+	(( ${#agent_pids[@]} )) && throw_err=true && (
+		printf "Found active ssh-agent processes with PID:"
+		printf " %s" ${agent_pids[*]}
+		printf "\n"
+	)
+
+	$throw_err
+}
+
+# Check if agent is already registered in shell
+if [[ -n "$SSH_AUTH_SOCK" && -n "$SSH_AGENT_PID" ]]; then
+    printf "ERROR: Existing agent (SOCK=%s, PID=%s)\n" \
+           $SSH_AUTH_SOCK $SSH_AGENT_PID
+    printf "       Terminate before adding another key\n"
+    printf "       Check existing keys with \`ssh-add -L\`\n"
+	return 1
 fi
 
-# Check for other ssh-agent processes running
-TMP_SSH=$(ls /tmp -maxdepth 1 -name 'ssh-*' -user "$USER" 2>/dev/null)
-if [ ! -z "$TMP_SSH" ]; then
-	echo "ERROR: Existing ssh processes within /tmp: $TMP_SSH"
+# Check for other leftover agents
+if _scan_for_authsock_listener; then
+	printf "ERROR: Clear out any existing or stale agents before use\n"
+	return 1
 fi
-PID_SSH=$(pgrep -u "$USER" -x ssh-agent)
-if [ ! -z "$PID_SSH" ]; then
-	echo "ERROR: Active ssh-agent processes with PID: $PID_SSH"
-fi
-if { [ ! -z "$TMP_SSH" ] || [ ! -z "$PID_SSH" ]; }; then
-	unset TMP_SSH
-	unset PID_SSH
-	echo "Terminate active processes and try again"
-	return
-fi
-unset TMP_SSH
-unset PID_SSH
 
 # Read arg input into SSH_KEY, if provided
 if [ ! -z "$SSH_KEY" ]; then
@@ -168,5 +232,6 @@ ssh-add "$SSH_KEY"
 # <<< ssh <<<
 
 # Clear temporary variables
-unset -f _diag_sshkey _resolve_ssh_path _load_ntfs_ssh_key
+unset -f _diag_sshkey _resolve_ssh_path _load_ntfs_ssh_key \
+         _scan_for_authsock_listener
 unset SSH_KEY KEY_FSTYPE
