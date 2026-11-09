@@ -113,7 +113,7 @@ fi
 
 # >>> ssh >>>
 eval "$(ssh-agent -s)"
-ssh-add $SSH_KEY
+ssh-add "$SSH_KEY"
 # <<< ssh <<<
 
 # Clear temporary variables
