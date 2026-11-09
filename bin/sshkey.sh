@@ -7,6 +7,58 @@
 # Contact:      wu.kevi@northeastern.edu
 # Last Updated: November 09, 2026
 
+# Set local functions
+_diag_sshkey() {  # diagnostic display
+    [[ "${DIAG,,}" =~ ^(true|1|yes)$ ]] || return # check DIAG=true
+    echo "[DIAG] (sshkey.sh) $*"
+}
+
+_resolve_ssh_path() (  # run in subshell so shopt changes not in shell
+	shopt -s nullglob dotglob
+	local input="$1" 
+	local current name err
+	local -a parts matches
+
+	if [[ "$input" == /* ]]; then
+		current="/";
+	else
+		current=".";
+	fi
+	IFS='/' read -r -a parts <<< "$input"
+
+	for part in "${parts[@]}"; do
+		[[ -z "$part" || "$part" == "." ]] && continue
+
+		# Prioritize exact match or ".." over c-i matching
+		if [[ "$part" == ".." || -e "${current%/}/$part" ]]; then
+			current="${current%/}/$part"
+			continue
+		fi
+
+		# Search for c-i matches
+		matches=()
+		for entry in "${current%/}"/*; do
+			name="${entry##*/}"
+			[[ "${name,,}" == "${part,,}" ]] && matches+=("$entry")
+		done
+
+		# Error if unable to resolve unique path
+		if (( ${#matches[@]} > 1 )); then
+			err="'$part': ${matches[*]##*/}"
+			echo "ERROR: Ambiguous case-insensitive match for $err" >&2
+			return 1
+		elif (( ${#matches[@]} == 0 )); then
+			return 1
+		fi
+
+		# Set
+		current="${matches[0]}"
+	done
+
+	[[ "$current" == ./* ]] && current="${current#./}"
+	printf '%s\n' "$current"
+)
+
 # Check SSH_AUTH_SOCK
 if { [ ! -z "$SSH_AUTH_SOCK" ] && [ ! -z "$SSH_AGENT_PID" ]; }; then
 	echo "ERROR: Existing agent (SOCK=$SSH_AUTH_SOCK, PID=$SSH_AGENT_PID)"
@@ -33,7 +85,7 @@ fi
 unset TMP_SSH
 unset PID_SSH
 
-# Read input into SSH_KEY, if provided
+# Read arg input into SSH_KEY, if provided
 if [ ! -z "$SSH_KEY" ]; then
 	echo "ERROR: Variable SSH_KEY appears to already be set: $SSH_KEY"
 	echo "Terminate and try again"
@@ -41,19 +93,29 @@ if [ ! -z "$SSH_KEY" ]; then
 fi
 [ ! -z "$1" ] && SSH_KEY=$1
 
-# Enable diagnostic output
-_diag_add_ssh() {
-    [[ "${DIAG,,}" =~ ^(true|1|yes)$ ]] || return # check DIAG=true
-    echo "[DIAG] (add_ssh.sh) $*"
-}
-
-# Check SSH_KEY
+# Read in SSH_KEY as path to key
 if [[ -z "$SSH_KEY" ]]; then
 	read -p "Enter SSH key: " SSH_KEY
 fi
-SSH_KEY="${SSH_KEY,,}" # case-insensitive
-SSH_KEY="${SSH_KEY/#~/$HOME}" # set home directory where necessary
-_diag_add_ssh "SSH_KEY set to: $SSH_KEY"
+
+# Expand leading ~
+if [[ "$SSH_KEY" == "~" || "$SSH_KEY" == "~/"* ]]; then
+	_diag_sshkey "Expanding '$SSH_KEY' to '$HOME${SSH_KEY:1}'"
+	SSH_KEY="$HOME${SSH_KEY:1}"
+else
+	_diag_sshkey "SSH_KEY set to: $SSH_KEY"
+fi
+
+# Check exact path, then, if needed, case-insensitive match
+if [[ ! -f "$SSH_KEY" ]]; then
+	_diag_sshkey "Failed to find input path. Attempting to resolve..."
+	SSH_KEY="$(_resolve_ssh_path $SSH_KEY)"
+	if [[ ! -f "$SSH_KEY" ]]; then
+		echo "ERROR: Unable to resolve path to SSH key."
+		return 1
+	fi
+	_diag_sshkey "Resolved to: $SSH_KEY"
+fi
 
 # Define different function for NTFS partition
 load_ntfs_ssh_key() {
@@ -92,9 +154,9 @@ load_ntfs_ssh_key() {
 KEY_FSTYPE="$(findmnt -n -o FSTYPE --target "$SSH_KEY")"
 if { [ "$KEY_FSTYPE" == "ntfs" ] || [ "$KEY_FSTYPE" == "ntfs3" ] || \
      [ "$KEY_FSTYPE" == "fuseblk" ]; }; then
-	_diag_add_ssh "Triggered NTFS check: $KEY_FSTYPE"
+	_diag_sshkey "Triggered NTFS check: $KEY_FSTYPE"
 	load_ntfs_ssh_key "$SSH_KEY"
-	unset -f _diag_add_ssh
+	unset -f _diag_sshkey
 	unset SSH_KEY
 	unset KEY_FSTYPE
 	return
@@ -104,7 +166,7 @@ unset -f load_ntfs_ssh_key
 
 # Set relative to DEV_PATH if needed
 if [[ ! -f "${SSH_KEY}" ]]; then
-	unset -f _diag_add_ssh
+	unset -f _diag_sshkey
 	unset BIN_DIR
 	echo "$SSH_KEY: No such file or directory"
 	unset SSH_KEY
@@ -117,6 +179,6 @@ ssh-add "$SSH_KEY"
 # <<< ssh <<<
 
 # Clear temporary variables
-unset -f _diag_add_ssh
+unset -f _diag_sshkey _resolve_ssh_path
 unset SSH_KEY
 unset BIN_DIR
