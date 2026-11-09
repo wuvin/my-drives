@@ -1,11 +1,11 @@
 #!/bin/bash
-# add_ssh.sh
+# sshkey.sh
 #
 # Description:
 #   Initializes SSH agent and add key.
 #
 # Contact:      wu.kevi@northeastern.edu
-# Last Updated: March 13, 2026
+# Last Updated: November 09, 2026
 
 # Check SSH_AUTH_SOCK
 if { [ ! -z "$SSH_AUTH_SOCK" ] && [ ! -z "$SSH_AGENT_PID" ]; }; then
@@ -16,18 +16,18 @@ if { [ ! -z "$SSH_AUTH_SOCK" ] && [ ! -z "$SSH_AGENT_PID" ]; }; then
 fi
 
 # Check for other ssh-agent processes running
-TMP_SSH=$(ls /tmp | grep ssh-)
+TMP_SSH=$(ls /tmp -maxdepth 1 -name 'ssh-*' -user "$USER" 2>/dev/null)
 if [ ! -z "$TMP_SSH" ]; then
 	echo "ERROR: Existing ssh processes within /tmp: $TMP_SSH"
 fi
-PID_SSH=$(ps aux | grep "\sssh-agent -s" | awk '{print $2}')
+PID_SSH=$(pgrep -u "$USER" -x ssh-agent)
 if [ ! -z "$PID_SSH" ]; then
 	echo "ERROR: Active ssh-agent processes with PID: $PID_SSH"
 fi
 if { [ ! -z "$TMP_SSH" ] || [ ! -z "$PID_SSH" ]; }; then
 	unset TMP_SSH
 	unset PID_SSH
-	echo "Clear active processes and try again"
+	echo "Terminate active processes and try again"
 	return
 fi
 unset TMP_SSH
@@ -36,7 +36,7 @@ unset PID_SSH
 # Read input into SSH_KEY, if provided
 if [ ! -z "$SSH_KEY" ]; then
 	echo "ERROR: Variable SSH_KEY appears to already be set: $SSH_KEY"
-	echo "Clear and try again"
+	echo "Terminate and try again"
 	return
 fi
 [ ! -z "$1" ] && SSH_KEY=$1
