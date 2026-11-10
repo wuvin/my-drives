@@ -95,8 +95,8 @@ _load_ntfs_ssh_key() {  # special case of key from NTFS partition
 	return $is_key_loaded
 }
 
-_scan_for_authsock_listener() {  # used to avoid flagging forwarded case
-	local stale_dirs alive_dirs agent_pids skip
+_scan_for_authsock_listener() {  # also avoids flagging forwarded case
+	local stale_dirs alive_dirs agent_pids skip sock num_agents num_pids
 	local found_alive=false  # ssh-add -l exits 0 if connects & has keys
                              #              ... 1 if connects & no keys
                              #              ... 2 if cannot connect
@@ -149,51 +149,87 @@ _scan_for_authsock_listener() {  # used to avoid flagging forwarded case
             -f '^ssh-agent( -[sc])?$'
     )
 
-	# Throw
-	(( ${#alive_dirs[@]} )) && throw_err=true && (
-		printf "Found active agent sockets in /tmp:"
-		printf " %s" ${alive_dirs[*]}
-		printf "\n"
-	)
-	(( ${#stale_dirs[@]} )) && throw_err=true && (
+	# Throw error if stale agent found
+	_diag_sshkey "Checking for stale agents..."
+	(( ${#stale_dirs[@]} )) && (
 		printf "Found stale agent directories in /tmp"
-		printf " (no agent listening):"
-		printf " %s" ${stale_dirs[*]}
-		printf "\n"
+		printf " (no agent listening):\n"
+		printf "    %s\n" ${stale_dirs[*]}
+		printf "ERROR: Clear out stale agents before use\n"
+		throw_err=true
 	)
-	(( ${#agent_pids[@]} )) && throw_err=true && (
-		printf "Found active ssh-agent processes with PID:"
-		printf " %s" ${agent_pids[*]}
-		printf "\n"
+
+	# Note number of active agents and ssh-agent processes
+	num_agents=${#alive_dirs[@]}
+	(( $num_agents )) && (
+		printf "Found active agent sockets in /tmp:\n"
+		printf "    %s\n" ${alive_dirs[*]}
 	)
+	num_pids=${#agent_pids[@]}
+	(( $num_pids )) && (
+		printf "Found active ssh-agent processes with PID:\n"
+		printf "    %s\n" ${agent_pids[*]}
+	)
+
+	# Connect to active agent in another terminal
+	#   Note: assumes any active agent sockets in /tmp and corresponding
+	#   	  ssh-agent process are from when user ran ssh-agent in some
+	#		  other terminal, and that PID owns the socket
+	_diag_sshkey \
+		"Checking if another terminal has already run ssh-agent..."
+	if [[ $num_agents != $num_pids ]]; then
+		printf "ERROR: Mismatch between number of active agents and"
+		printf " number of ssh-agent processes; resolve before"
+		printf " continuing\n"
+		throw_err=true
+	elif [[ $num_agents > 1 ]]; then
+		printf "ERROR: Unable to determine which ssh-agent to share"
+		printf " among multiple active agents found; resolve before"
+		printf " continuing\n"
+		throw_err=true
+	elif [[ $num_agents == 1 ]]; then  # connect to this agent
+		sock=( "${alive_dirs[0]}"/agent.* )
+		if [[ ${#sock[@]} != 1 ]]; then
+			printf "ERROR: Expected 1 'agent.*' entry for socket but"
+			printf " found %d\n" ${#sock[@]}
+			throw_err=true
+		else
+			printf "Binding to existing socket at %s with PID %s...\n" \
+				${sock} ${agent_pids[0]}
+			export SSH_AUTH_SOCK="$sock"
+			export SSH_AGENT_PID="${agent_pids[0]}"
+		fi
+	fi
 
 	$throw_err
 }
 
 # Check if agent is already registered in shell
 if [[ -n "$SSH_AUTH_SOCK" && -n "$SSH_AGENT_PID" ]]; then
-    printf "ERROR: Existing agent (SOCK=%s, PID=%s)\n" \
+    printf "ERROR: Existing agent in shell (SOCK=%s, PID=%s)\n" \
            $SSH_AUTH_SOCK $SSH_AGENT_PID
     printf "       Terminate before adding another key\n"
     printf "       Check existing keys with \`ssh-add -L\`\n"
 	return 1
 fi
 
-# Check for other leftover agents
+# Check for other agents
 if _scan_for_authsock_listener; then
-	printf "ERROR: Clear out any existing or stale agents before use\n"
+	return 1  # function returns throw_err
+elif [[ -n "$SSH_AGENT_PID" ]]; then
+	printf "\nKey(s) loaded:\n"
+	ssh-add -l
+	return 0
+fi
+
+# Get path to key as arg passed
+if [[ ! -z "$SSH_KEY" ]]; then  # avoid setting ahead of time
+	echo "ERROR: Variable SSH_KEY should not already be set ($SSH_KEY)"
 	return 1
 fi
+[[ ! -z "$1" ]] && SSH_KEY=$1  # path to key passed as arg
 
-# Read arg input into SSH_KEY, if provided
-if [ ! -z "$SSH_KEY" ]; then
-	echo "ERROR: Variable SSH_KEY appears to already be set: $SSH_KEY"
-	echo "Terminate and try again"
-	return
-fi
-[ ! -z "$1" ] && SSH_KEY=$1
-
-# Read in SSH_KEY as path to key
+# Read in path to key, if needed
 if [[ -z "$SSH_KEY" ]]; then
 	read -p "Enter SSH key: " SSH_KEY
 fi
