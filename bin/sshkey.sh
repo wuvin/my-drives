@@ -5,7 +5,7 @@
 #   Initializes SSH agent and add key.
 #
 # Contact:      wu.kevi@northeastern.edu
-# Last Updated: November 09, 2026
+# Last Updated: November 12, 2026
 
 # Check if sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -204,6 +204,54 @@ _scan_for_authsock_listener() {  # also avoids flagging forwarded case
 	$throw_err
 }
 
+_find_key_in_dir() {  # $1=dir
+	local match
+	local expr="id_git*"
+	while IFS= read -r -d '' file; do
+		if [[ -f "${file}.pub" ]]; then
+			if [[ ! -z "$match" ]]; then
+				echo "ERROR: Multiple possible keys found in $1"
+				return 1
+			fi
+			match="$file"
+		fi
+	done < <(
+		find "$1" \
+			-maxdepth 1	\
+			-type f \
+			-name "${expr}" \
+			-user "$(id -u)" \
+			-print0 2>/dev/null
+	)
+	if [[ -z "$match" ]]; then
+		echo "ERROR: No key found in ${1}"
+		return 1
+	fi
+	printf "%s" "$match"
+}
+
+# Check SSH_KEY
+if [[ ! -z "$SSH_KEY" ]]; then  # avoid setting ahead of time
+	echo "ERROR: Variable SSH_KEY should not already be set ($SSH_KEY)"
+	return 1
+fi
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		-h|--help)
+			echo "Usage: ${BASH_SOURCE[0]} <key_dir_or_file>"
+			exit 0
+			;;
+		*) ;;
+	esac
+	if [[ ! -z "$SSH_KEY" ]]; then 
+		echo "ERROR: Multiple positional arguments found";
+	fi
+	SSH_KEY="$1"
+	shift
+done
+
 # Check if agent is already registered in shell
 if [[ -n "$SSH_AUTH_SOCK" && -n "$SSH_AGENT_PID" ]]; then
     printf "ERROR: Existing agent in shell (SOCK=%s, PID=%s)\n" \
@@ -213,25 +261,17 @@ if [[ -n "$SSH_AUTH_SOCK" && -n "$SSH_AGENT_PID" ]]; then
 	return 1
 fi
 
-# Check for other agents
-if _scan_for_authsock_listener; then
-	return 1  # function returns throw_err
-elif [[ -n "$SSH_AGENT_PID" ]]; then
-	printf "\nKey(s) loaded:\n"
-	ssh-add -l
-	return 0
-fi
-
-# Get path to key as arg passed
-if [[ ! -z "$SSH_KEY" ]]; then  # avoid setting ahead of time
-	echo "ERROR: Variable SSH_KEY should not already be set ($SSH_KEY)"
-	return 1
-fi
-[[ ! -z "$1" ]] && SSH_KEY=$1  # path to key passed as arg
-
-# Read in path to key, if needed
-if [[ -z "$SSH_KEY" ]]; then
-	read -p "Enter SSH key: " SSH_KEY
+# Handle SSH key not being provided yet
+if [[ -z "$SSH_KEY" ]]; then  # if empty, check for shared agent
+	if _scan_for_authsock_listener; then
+		return 1  # function returns throw_err
+	elif [[ -n "$SSH_AGENT_PID" ]]; then  # found shared agent
+		printf "\nKey(s) loaded:\n"
+		ssh-add -l
+		return 0
+	else  # no shared agent; prompt user for path
+		read -p "Enter SSH key: " SSH_KEY
+	fi
 fi
 
 # Expand leading ~
@@ -243,13 +283,17 @@ else
 fi
 
 # Check exact path, then, if needed, case-insensitive match
-if [[ ! -f "$SSH_KEY" ]]; then
+if [[ -d "$SSH_KEY" ]]; then  # attempt to find key in folder
+	SSH_KEY="$(_find_key_in_dir "$SSH_KEY")"
+	[[ $? -eq 1 ]] && echo $SSH_KEY && return 1;  # throw error
+elif [[ ! -f "$SSH_KEY" ]]; then
 	_diag_sshkey "Failed to find input path. Attempting to resolve..."
 	SSH_KEY="$(_resolve_ssh_path $SSH_KEY)"
 	if [[ ! -f "$SSH_KEY" ]]; then
 		echo "ERROR: Unable to resolve path to SSH key."
 		return 1
 	fi
+	echo "Resolved to: $SSH_KEY"
 	_diag_sshkey "Resolved to: $SSH_KEY"
 fi
 
@@ -269,5 +313,5 @@ ssh-add "$SSH_KEY"
 
 # Clear temporary variables
 unset -f _diag_sshkey _resolve_ssh_path _load_ntfs_ssh_key \
-         _scan_for_authsock_listener
+         _scan_for_authsock_listener _find_key_in_dir
 unset SSH_KEY KEY_FSTYPE
